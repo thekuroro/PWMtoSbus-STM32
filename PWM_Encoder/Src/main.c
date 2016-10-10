@@ -38,6 +38,7 @@
 #include "usb_device.h"
 #include "usbd_cdc.h"
 #include "main.h"
+#include "Sbus.h"
 
 
 /* USER CODE END Includes */
@@ -45,6 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -57,6 +60,8 @@ CH_Pwm_Val_t CH_Pwm_Val[RC_CH_NB];
 USBD_CDC_HandleTypeDef *hcdc;
 int32_t Init_Done = 0;
 char Buff_USB[100];
+uint8_t test;
+uint16_t Sbus_CH[16]  	= {1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025};
 
 /* USER CODE END PV */
 
@@ -66,9 +71,7 @@ void Error_Handler(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
-
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
-                
+static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -99,17 +102,18 @@ int main(void)
   MX_TIM1_Init();
   MX_USB_DEVICE_Init();
   MX_TIM2_Init();
+  MX_USART2_UART_Init();
 
   /* USER CODE BEGIN 2 */
+
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_1);
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_2);
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_3);
-  /*
-  HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_4);
-  */
+
+
 
   //test
-  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
+  //HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -148,6 +152,14 @@ int main(void)
 	  		}
 
 	  	}
+
+	  	Sbus_CH[0] = (CH_Pwm_Val[0].Delta / PWM_Ratio);
+	  	Sbus_CH[1] = (CH_Pwm_Val[1].Delta / PWM_Ratio);
+	  	Sbus_CH[2] = (CH_Pwm_Val[2].Delta / PWM_Ratio);
+	  	//Sbus_CH[3] = (CH_Pwm_Val[3].Delta / PWM_Ratio);
+
+	  	SBUS_write(Sbus_CH);
+	  	HAL_Delay(4);
 
   /* USER CODE END WHILE */
 
@@ -215,8 +227,8 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 2;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV4;
+  htim1.Init.Period = TIMER_MAX_VAL;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
@@ -268,12 +280,12 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig;
   TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_OC_InitTypeDef sConfigOC;
+  TIM_IC_InitTypeDef sConfigIC;
 
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 2;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
+  htim2.Init.Period = TIMER_MAX_VAL;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV4;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
@@ -286,7 +298,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
 
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -298,16 +310,43 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
 
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 25000;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  HAL_TIM_MspPostInit(&htim2);
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+}
+
+/* USART2 init function */
+static void MX_USART2_UART_Init(void)
+{
+
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 100000;
+  huart2.Init.WordLength = UART_WORDLENGTH_9B;
+  huart2.Init.StopBits = UART_STOPBITS_2;
+  huart2.Init.Parity = UART_PARITY_EVEN;
+  huart2.Init.Mode = UART_MODE_TX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
 }
 
@@ -324,6 +363,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
 }
 
@@ -337,15 +377,16 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 	sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
 	sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
 	sConfigIC.ICFilter = 0;
-	//static uint8_t RC_CH2_Sampel_Ok = 1;
 
 	/*****************************************
-	 * 				CH1 sampling
+	 * 				CH 1 to 3 sampling
 	 *****************************************/
 
 	Ch_Idx 		= htim->Channel >> 1;
 	Ch_Ct_Idx 	= Ch_Idx * 4;
-	//TIM_CHANNEL_1
+
+	if(htim->Instance == TIM2)
+		Ch_Idx += RC_CH_PER_TIMER;
 
 		if(CH_Pwm_Val[Ch_Idx].Current_Edge == RAISING)
 		{
@@ -368,13 +409,12 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 		HAL_TIM_IC_Start_IT(&htim1,Ch_Ct_Idx);
 
 
-/*
-	if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3) {
-		CC_CH_3 = HAL_TIM_ReadCapturedValue(htim,TIM_CHANNEL_3);
-	}
-	*/
+
+
 
 }
+
+
 /* USER CODE END 4 */
 
 /**

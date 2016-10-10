@@ -8,9 +8,11 @@
 #ifndef MAIN_H_
 #define MAIN_H_
 
-#define RAISING  0
-#define FALLING  1
-#define RC_CH_NB 3
+#define RAISING  		0
+#define FALLING  		1
+#define RC_CH_NB 		3
+#define RC_CH_PER_TIMER 3
+#define PWM_Ratio		23
 
 typedef struct CH_Pwm_Val_s
 {
