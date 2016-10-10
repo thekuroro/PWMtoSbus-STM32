@@ -34,12 +34,9 @@
 #include "stm32f1xx_hal.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb_device.h"
 #include "gpio.h"
 
 /* USER CODE BEGIN Includes */
-#include "usb_device.h"
-#include "usbd_cdc.h"
 #include "main.h"
 #include "Sbus.h"
 
@@ -50,16 +47,8 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-uint16_t CC_CH_1 = 0, CC_CH_2 = 0,CC_CH_3 = 0;
-uint16_t Prev_RC_CH_1 = 0;
-uint16_t RC_CH_1 = 0;
-CH_Pwm_Val_t CH_Pwm_Val[RC_CH_NB];
-
-// test
-USBD_CDC_HandleTypeDef *hcdc;
-int32_t Init_Done = 0;
-char Buff_USB[100];
-uint8_t test;
+CH_Pwm_Val_t CH_Pwm_Val[MAX_RC_CH_NB];
+uint8_t i;
 uint16_t Sbus_CH[16]  	= {1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025};
 
 /* USER CODE END PV */
@@ -95,20 +84,26 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM1_Init();
-  MX_USB_DEVICE_Init();
   MX_TIM2_Init();
   MX_USART2_UART_Init();
+  MX_TIM3_Init();
 
   /* USER CODE BEGIN 2 */
-
+  // RC channels 1 to 3
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_1);
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_2);
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_3);
 
 
+  // RC channels 4 to 7
+  HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_2);
+  HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_3);
+  HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_4);
 
-  //test
-  //HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
+  // RC channel 8
+  HAL_TIM_IC_Start_IT(&htim3,TIM_CHANNEL_1);
+
 
   /* USER CODE END 2 */
 
@@ -116,45 +111,17 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // USB debug
-	  if((hUsbDeviceFS.pClassData != 0) && (Init_Done == 0))
-	  	{
-	  		Init_Done = 1;
-	  		hcdc = (USBD_CDC_HandleTypeDef*) hUsbDeviceFS.pClassData;
+	  	for(i=0;i<USED_RC_CH_NB;i++){
+	  		if(CH_Pwm_Val[i].CH_Detected == CH_DETECTED){
+	  			Sbus_CH[i] = ((CH_Pwm_Val[i].Delta / PWM_Ratio) - 880) / 0.625f;
+	  			CH_Pwm_Val[i].CH_Detected = CH_NOT_DETECTED;
+	  		}
+	  		else
+	  			Sbus_CH[i] = 0;
 	  	}
 
-	  	if(Init_Done == 1)
-	  	{
-	  		/************ Echo **************/
-	  		if(hcdc->RxLength > 0)
-	  		{
-	  				CDC_Transmit_FS(hcdc->RxBuffer, hcdc->RxLength);
-	  				hcdc->RxLength = 0;
-	  		}
-
-	  		if ((CH_Pwm_Val[0].Delta != CH_Pwm_Val[0].Prev_Delta)
-	  		||	(CH_Pwm_Val[1].Delta != CH_Pwm_Val[1].Prev_Delta)
-			||	(CH_Pwm_Val[2].Delta != CH_Pwm_Val[2].Prev_Delta)
-			||	(CH_Pwm_Val[3].Delta != CH_Pwm_Val[3].Prev_Delta)){
-
-	  			CH_Pwm_Val[0].Prev_Delta = CH_Pwm_Val[0].Delta;
-	  			CH_Pwm_Val[1].Prev_Delta = CH_Pwm_Val[1].Delta;
-	  			CH_Pwm_Val[2].Prev_Delta = CH_Pwm_Val[2].Delta;
-	  			CH_Pwm_Val[3].Prev_Delta = CH_Pwm_Val[3].Delta;
-
-	  			snprintf (Buff_USB, sizeof(Buff_USB), "CH1 = %d CH2 = %d CH3 = %d  \n\r", CH_Pwm_Val[0].Delta,CH_Pwm_Val[1].Delta,CH_Pwm_Val[2].Delta);
-	  			CDC_Transmit_FS(Buff_USB, strlen(Buff_USB));
-	  		}
-
-	  	}
-
-	  	Sbus_CH[0] = (CH_Pwm_Val[0].Delta / PWM_Ratio);
-	  	Sbus_CH[1] = (CH_Pwm_Val[1].Delta / PWM_Ratio);
-	  	Sbus_CH[2] = (CH_Pwm_Val[2].Delta / PWM_Ratio);
-	  	//Sbus_CH[3] = (CH_Pwm_Val[3].Delta / PWM_Ratio);
-
-	  	SBUS_write(Sbus_CH);
-	  	HAL_Delay(4);
+	  SBUS_write(Sbus_CH);
+	  HAL_Delay(4);
 
   /* USER CODE END WHILE */
 
@@ -172,7 +139,6 @@ void SystemClock_Config(void)
 
   RCC_OscInitTypeDef RCC_OscInitStruct;
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
-  RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
@@ -192,13 +158,6 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
@@ -229,20 +188,27 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 	Ch_Idx 		= htim->Channel >> 1;
 	Ch_Ct_Idx 	= Ch_Idx * 4;
 
+	if(htim->Channel == TIM_CHANNEL_4)
+		Ch_Idx 		= htim->Channel >> 1;
+
+
 	if(htim->Instance == TIM2)
-		Ch_Idx += RC_CH_PER_TIMER;
+		Ch_Idx += TIMER_1_CH_NB;
+	else if(htim->Instance == TIM3)
+		Ch_Idx += TIMER_1_CH_NB + TIMER_2_CH_NB;
 
 		if(CH_Pwm_Val[Ch_Idx].Current_Edge == RAISING)
 		{
+			CH_Pwm_Val[Ch_Idx].CH_Detected =  CH_DETECTED;
 			CH_Pwm_Val[Ch_Idx].Rising = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
 			sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
-			HAL_TIM_IC_ConfigChannel(&htim1, &sConfigIC, Ch_Ct_Idx);
+			HAL_TIM_IC_ConfigChannel(htim, &sConfigIC, Ch_Ct_Idx);
 			CH_Pwm_Val[Ch_Idx].Current_Edge = FALLING;
 		}
 		else{
 			CH_Pwm_Val[Ch_Idx].Falling = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
 			sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-			HAL_TIM_IC_ConfigChannel(&htim1, &sConfigIC, Ch_Ct_Idx);
+			HAL_TIM_IC_ConfigChannel(htim, &sConfigIC, Ch_Ct_Idx);
 			CH_Pwm_Val[Ch_Idx].Current_Edge = RAISING;
 
 			if(CH_Pwm_Val[Ch_Idx].Rising < CH_Pwm_Val[Ch_Idx].Falling)
@@ -250,12 +216,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 			else
 				CH_Pwm_Val[Ch_Idx].Delta = (TIMER_MAX_VAL - CH_Pwm_Val[Ch_Idx].Rising) + CH_Pwm_Val[Ch_Idx].Falling + 1;
 		}
-		HAL_TIM_IC_Start_IT(&htim1,Ch_Ct_Idx);
-
-
-
-
-
+		HAL_TIM_IC_Start_IT(htim,Ch_Ct_Idx);
 }
 
 
