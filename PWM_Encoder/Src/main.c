@@ -50,6 +50,8 @@
 CH_Pwm_Val_t CH_Pwm_Val[MAX_RC_CH_NB];
 uint8_t i;
 uint16_t Sbus_CH[16]  	= {1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025,1025};
+TIM_IC_InitTypeDef sConfigIC;
+
 
 /* USER CODE END PV */
 
@@ -94,7 +96,6 @@ int main(void)
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_2);
   HAL_TIM_IC_Start_IT(&htim1,TIM_CHANNEL_3);
 
-
   // RC channels 4 to 7
   HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_1);
   HAL_TIM_IC_Start_IT(&htim2,TIM_CHANNEL_2);
@@ -103,6 +104,12 @@ int main(void)
 
   // RC channel 8
   HAL_TIM_IC_Start_IT(&htim3,TIM_CHANNEL_1);
+
+
+
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
 
 
   /* USER CODE END 2 */
@@ -121,7 +128,7 @@ int main(void)
 	  	}
 
 	  SBUS_write(Sbus_CH);
-	  HAL_Delay(4);
+	  HAL_Delay(7);
 
   /* USER CODE END WHILE */
 
@@ -176,46 +183,69 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 	uint8_t Ch_Idx;
 	uint8_t Ch_Ct_Idx;
 
-	TIM_IC_InitTypeDef sConfigIC;
-	sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-	sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-	sConfigIC.ICFilter = 0;
-
 	/*****************************************
-	 * 				CH 1 to 3 sampling
+	 * 				CH 1 to 8 sampling
 	 *****************************************/
 
 	Ch_Idx 		= htim->Channel >> 1;
-	Ch_Ct_Idx 	= Ch_Idx * 4;
 
-	if(htim->Channel == TIM_CHANNEL_4)
-		Ch_Idx 		= htim->Channel >> 1;
-
+	switch(htim->Channel)
+	{
+		case HAL_TIM_ACTIVE_CHANNEL_1:
+			Ch_Idx 		= 0;
+			Ch_Ct_Idx 	= TIM_CHANNEL_1;
+		break;
+		case HAL_TIM_ACTIVE_CHANNEL_2:
+			Ch_Idx 		= 1;
+			Ch_Ct_Idx 	= TIM_CHANNEL_2;
+		break;
+		case HAL_TIM_ACTIVE_CHANNEL_3:
+			Ch_Idx 		= 2;
+			Ch_Ct_Idx 	= TIM_CHANNEL_3;
+		break;
+		case HAL_TIM_ACTIVE_CHANNEL_4:
+			Ch_Idx 		= 3;
+			Ch_Ct_Idx 	= TIM_CHANNEL_4;
+		break;
+	}
 
 	if(htim->Instance == TIM2)
 		Ch_Idx += TIMER_1_CH_NB;
 	else if(htim->Instance == TIM3)
 		Ch_Idx += TIMER_1_CH_NB + TIMER_2_CH_NB;
 
+	// Raising edge
 		if(CH_Pwm_Val[Ch_Idx].Current_Edge == RAISING)
 		{
+			// Set Edge detect flag
 			CH_Pwm_Val[Ch_Idx].CH_Detected =  CH_DETECTED;
-			CH_Pwm_Val[Ch_Idx].Rising = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
+
+			// Set IC polarity to Falling
 			sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
 			HAL_TIM_IC_ConfigChannel(htim, &sConfigIC, Ch_Ct_Idx);
 			CH_Pwm_Val[Ch_Idx].Current_Edge = FALLING;
+
+			// Store raising edge timer value
+			CH_Pwm_Val[Ch_Idx].Rising = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
 		}
+		// Falling edge
 		else{
-			CH_Pwm_Val[Ch_Idx].Falling = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
+			// Set IC polarity to Raising
 			sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
 			HAL_TIM_IC_ConfigChannel(htim, &sConfigIC, Ch_Ct_Idx);
 			CH_Pwm_Val[Ch_Idx].Current_Edge = RAISING;
 
+			// Store falling edge timer value
+			CH_Pwm_Val[Ch_Idx].Falling = HAL_TIM_ReadCapturedValue(htim,Ch_Ct_Idx);
+
+			// Compute delta value between raising and falling edge
 			if(CH_Pwm_Val[Ch_Idx].Rising < CH_Pwm_Val[Ch_Idx].Falling)
 				CH_Pwm_Val[Ch_Idx].Delta = CH_Pwm_Val[Ch_Idx].Falling - CH_Pwm_Val[Ch_Idx].Rising;
 			else
 				CH_Pwm_Val[Ch_Idx].Delta = (TIMER_MAX_VAL - CH_Pwm_Val[Ch_Idx].Rising) + CH_Pwm_Val[Ch_Idx].Falling + 1;
 		}
+
+		// Start IC interrupt after polarity inversion
 		HAL_TIM_IC_Start_IT(htim,Ch_Ct_Idx);
 }
 
